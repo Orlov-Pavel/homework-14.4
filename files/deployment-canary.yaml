@@ -1,0 +1,153 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-1
+data:
+  index.html: |
+    This is nginx-1 deployment
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-2
+data:
+  index.html: |
+    This is nginx-2 deployment
+
+---
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: nginx-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: v1
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.19
+          volumeMounts:
+          - name: nginx-1
+            mountPath: "/usr/share/nginx/html"
+      volumes:
+      - name: nginx-1
+        configMap:
+          name: nginx-1
+          items:
+          - key: "index.html"
+            path: "index.html"
+
+---
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: nginx-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: v2
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.19
+          volumeMounts:
+          - name: nginx-2
+            mountPath: "/usr/share/nginx/html"
+      volumes:
+      - name: nginx-2
+        configMap:
+          name: nginx-2
+          items:
+          - key: "index.html"
+            path: "index.html"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+  selector:
+    app: nginx
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: ingressgateway
+  namespace: istio-system
+  labels:
+    release: istio
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+      - "*"
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: nginx
+spec:
+  gateways:
+  - istio-system/ingressgateway
+  hosts:
+  - "nginx.test"
+  http:
+  - match:
+    - {}
+    route:
+    - destination:
+        host: nginx.default.svc.cluster.local
+        subset: v1
+        port:
+          number: 80
+      weight: 80
+    - destination:
+        host: nginx.default.svc.cluster.local
+        subset: v2
+        port:
+          number: 80
+      weight: 20
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: nginx
+spec:
+  host: nginx.default.svc.cluster.local
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
